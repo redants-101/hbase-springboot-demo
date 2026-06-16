@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: hbase-springboot-demo
+
+hbase:
+  zookeeper:
+    quorum: 140.143.201.112   # 你的服务器公网IP，若同内网则用内网IP
+    port: 2181
+    znode:
+      parent: /hbase
+  client:
+    retries: 3
+    operation-timeout: 10000   # ms
+    scanner-caching: 100
+
+logging:
+  level:
+    com.example.hbase: DEBUG
+    org.apache.hadoop.hbase: WARN
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
