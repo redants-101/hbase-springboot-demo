@@ -4,7 +4,7 @@ spring:
 
 hbase:
   zookeeper:
-    quorum: ${HBASE_ZK_QUORUM:140.143.201.112}
+    quorum: ${HBASE_ZK_QUORUM:localhost}
     port: ${HBASE_ZK_PORT:2181}
     znode:
       parent: ${HBASE_ZNODE_PARENT:/hbase}
