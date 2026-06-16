@@ -7,8 +7,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * 集成测试，需要真实可访问的 HBase 集群。
+ */
 @SpringBootTest
-public class HBaseServiceTest {
+public class HBaseServiceIT {
 
     @Autowired
     private HBaseService hBaseService;
@@ -21,17 +24,12 @@ public class HBaseServiceTest {
         String qualifier = "name";
         String value = "SpringBootHBase";
 
-        // 创建表
         hBaseService.createTable(table, cf);
-
-        // 插入数据
         hBaseService.putData(table, rowKey, cf, qualifier, value);
 
-        // 读取数据
         String result = hBaseService.getData(table, rowKey, cf, qualifier);
         assertThat(result).isEqualTo(value);
 
-        // 清理
         hBaseService.deleteRow(table, rowKey);
     }
 }

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
          http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
@@ -24,19 +24,19 @@
     </properties>
 
     <dependencies>
-        <!-- Spring Boot Web -->
+        <!-- Spring Boot Web 支持 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- Spring Boot Actuator -->
+        <!-- Spring Boot Actuator 监控端点 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
-        <!-- HBase Client -->
+        <!-- HBase 客户端 -->
         <dependency>
             <groupId>org.apache.hbase</groupId>
             <artifactId>hbase-client</artifactId>
@@ -54,7 +54,7 @@
                     <groupId>log4j</groupId>
                     <artifactId>log4j</artifactId>
                 </exclusion>
-                <!-- 排除旧版 hadoop-auth 2.7.7，使用 hadoop-common 3.2.4 传递的 3.2.4 版本 -->
+                <!-- 排除旧的传递依赖 hadoop-auth，统一使用 hadoop-common 带入的版本。 -->
                 <exclusion>
                     <groupId>org.apache.hadoop</groupId>
                     <artifactId>hadoop-auth</artifactId>
@@ -62,7 +62,7 @@
             </exclusions>
         </dependency>
 
-        <!-- Hadoop Common (HBase依赖) -->
+        <!-- HBase 客户端依赖 Hadoop Common。 -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-common</artifactId>
@@ -83,13 +83,13 @@
             </exclusions>
         </dependency>
 
-        <!-- 连接池（HBase Connection本身线程安全，但为配置超时等添加此库）-->
+        <!-- 预留给连接池等扩展场景的工具依赖。 -->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-pool2</artifactId>
         </dependency>
 
-        <!-- 工具类 -->
+        <!-- 通用工具类 -->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
@@ -101,7 +101,7 @@
             <version>31.1-jre</version>
         </dependency>
 
-        <!-- Spring Boot Test -->
+        <!-- Spring Boot 测试支持 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -114,7 +114,7 @@
             <optional>true</optional>
         </dependency>
 
-        <!-- 嵌入式HBase Testing（可选，用于单元测试）-->
+        <!-- HBase 集成测试工具。 -->
         <dependency>
             <groupId>org.apache.hbase</groupId>
             <artifactId>hbase-testing-util</artifactId>
@@ -131,6 +131,7 @@
                 </exclusion>
             </exclusions>
         </dependency>
+
         <dependency>
             <groupId>jakarta.validation</groupId>
             <artifactId>jakarta.validation-api</artifactId>

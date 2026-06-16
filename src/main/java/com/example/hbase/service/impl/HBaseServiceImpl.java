@@ -4,7 +4,17 @@ import com.example.hbase.exception.BusinessException;
 import com.example.hbase.service.HBaseService;
 import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.client.Admin;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
+import org.apache.hadoop.hbase.client.Connection;
+import org.apache.hadoop.hbase.client.Delete;
+import org.apache.hadoop.hbase.client.Get;
+import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.client.ResultScanner;
+import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.client.Table;
+import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,7 +39,8 @@ public class HBaseServiceImpl implements HBaseService {
 
     @Override
     public void createTable(String tableName, String... columnFamilies) {
-        if (columnFamilies == null || columnFamilies.length == 0) {
+        if (columnFamilies == null || columnFamilies.length == 0
+                || Arrays.stream(columnFamilies).anyMatch(cf -> !StringUtils.hasText(cf))) {
             throw new BusinessException("At least one column family is required");
         }
         try (Admin admin = connection.getAdmin()) {
@@ -53,14 +64,14 @@ public class HBaseServiceImpl implements HBaseService {
     @Override
     public void putData(String tableName, String rowKey, String columnFamily, String qualifier, String value) {
         if (value == null) {
-            // HBase不支持null值，可以考虑删除该列
             throw new BusinessException("Value cannot be null for put");
         }
         try (Table table = connection.getTable(TableName.valueOf(tableName))) {
             Put put = new Put(Bytes.toBytes(rowKey));
             put.addColumn(Bytes.toBytes(columnFamily), Bytes.toBytes(qualifier), Bytes.toBytes(value));
             table.put(put);
-            log.debug("Put data: table={}, row={}, cf={}, qualifier={}, value={}", tableName, rowKey, columnFamily, qualifier, value);
+            log.debug("Put data: table={}, row={}, cf={}, qualifier={}, value={}",
+                    tableName, rowKey, columnFamily, qualifier, value);
         } catch (IOException e) {
             log.error("Failed to put data", e);
             throw new BusinessException("Put data failed: " + e.getMessage(), e);
@@ -69,29 +80,18 @@ public class HBaseServiceImpl implements HBaseService {
 
     @Override
     public String getData(String tableName, String rowKey, String columnFamily, String qualifier) {
+        if (!StringUtils.hasText(columnFamily) || !StringUtils.hasText(qualifier)) {
+            throw new BusinessException("columnFamily and qualifier are required for single-cell reads");
+        }
         try (Table table = connection.getTable(TableName.valueOf(tableName))) {
             Get get = new Get(Bytes.toBytes(rowKey));
-            if (StringUtils.hasText(columnFamily)) {
-                if (StringUtils.hasText(qualifier)) {
-                    get.addColumn(Bytes.toBytes(columnFamily), Bytes.toBytes(qualifier));
-                } else {
-                    get.addFamily(Bytes.toBytes(columnFamily));
-                }
-            }
+            get.addColumn(Bytes.toBytes(columnFamily), Bytes.toBytes(qualifier));
             Result result = table.get(get);
             if (result.isEmpty()) {
                 return null;
             }
-            if (StringUtils.hasText(columnFamily) && StringUtils.hasText(qualifier)) {
-                byte[] value = result.getValue(Bytes.toBytes(columnFamily), Bytes.toBytes(qualifier));
-                return value == null ? null : Bytes.toString(value);
-            } else {
-                // 返回整行的第一个值简化示例，实际应返回Map
-                for (Map.Entry<byte[], byte[]> entry : result.getFamilyMap(Bytes.toBytes(columnFamily)).entrySet()) {
-                    return Bytes.toString(entry.getValue());
-                }
-                return null;
-            }
+            byte[] value = result.getValue(Bytes.toBytes(columnFamily), Bytes.toBytes(qualifier));
+            return value == null ? null : Bytes.toString(value);
         } catch (IOException e) {
             log.error("Failed to get data", e);
             throw new BusinessException("Get data failed: " + e.getMessage(), e);

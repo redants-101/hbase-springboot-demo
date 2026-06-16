@@ -17,7 +17,7 @@ public class HBaseConfig {
     private static final Logger log = LoggerFactory.getLogger(HBaseConfig.class);
 
     /**
-     * Windows环境下设置HADOOP_HOME，避免FileNotFoundException
+     * Windows 环境设置 hadoop.home.dir，避免缺少 winutils 导致启动异常。
      */
     static {
         setupHadoopHome();
@@ -26,7 +26,6 @@ public class HBaseConfig {
     private static void setupHadoopHome() {
         String hadoopHome = System.getenv("HADOOP_HOME");
         if (hadoopHome == null) {
-            // 尝试使用项目目录下的hadoop_home
             String projectDir = System.getProperty("user.dir");
             String winutilsDir = projectDir + "/hadoop_home";
             System.setProperty("hadoop.home.dir", winutilsDir);
@@ -51,6 +50,12 @@ public class HBaseConfig {
     @Value("${hbase.client.operation-timeout:10000}")
     private int operationTimeout;
 
+    @Value("${hbase.client.rpc-timeout:60000}")
+    private int rpcTimeout;
+
+    @Value("${hbase.client.scanner-caching:100}")
+    private int scannerCaching;
+
     @Bean
     public org.apache.hadoop.conf.Configuration hbaseConfiguration() {
         org.apache.hadoop.conf.Configuration conf = HBaseConfiguration.create();
@@ -59,13 +64,12 @@ public class HBaseConfig {
         conf.set("zookeeper.znode.parent", znodeParent);
         conf.set("hbase.client.retries.number", String.valueOf(retries));
         conf.set("hbase.client.operation.timeout", String.valueOf(operationTimeout));
-        // 优化参数
-        conf.set("hbase.rpc.timeout", "60000");
-        conf.set("hbase.client.scanner.caching", "100");
+        conf.set("hbase.rpc.timeout", String.valueOf(rpcTimeout));
+        conf.set("hbase.client.scanner.caching", String.valueOf(scannerCaching));
         return conf;
     }
 
-    @Bean(destroyMethod = "close")  // 容器关闭时自动调用 Connection.close() 释放连接
+    @Bean(destroyMethod = "close")
     public Connection hbaseConnection(org.apache.hadoop.conf.Configuration configuration) {
         try {
             Connection connection = ConnectionFactory.createConnection(configuration);

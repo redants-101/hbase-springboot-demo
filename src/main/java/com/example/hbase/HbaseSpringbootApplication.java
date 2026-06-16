@@ -6,7 +6,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @SpringBootApplication
 public class HbaseSpringbootApplication {
     public static void main(String[] args) {
-        // Windows环境下设置HADOOP_HOME，避免winutils.exe缺失导致异常
+        // Windows 环境未配置 HADOOP_HOME 时，使用项目内置的 hadoop_home。
         if (System.getProperty("os.name").toLowerCase().contains("win")) {
             String hadoopHome = System.getenv("HADOOP_HOME");
             if (hadoopHome == null) {

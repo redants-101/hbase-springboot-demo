@@ -4,14 +4,15 @@ spring:
 
 hbase:
   zookeeper:
-    quorum: 140.143.201.112   # 你的服务器公网IP，若同内网则用内网IP
-    port: 2181
+    quorum: ${HBASE_ZK_QUORUM:140.143.201.112}
+    port: ${HBASE_ZK_PORT:2181}
     znode:
-      parent: /hbase
+      parent: ${HBASE_ZNODE_PARENT:/hbase}
   client:
-    retries: 3
-    operation-timeout: 10000   # ms
-    scanner-caching: 100
+    retries: ${HBASE_CLIENT_RETRIES:3}
+    operation-timeout: ${HBASE_OPERATION_TIMEOUT:10000}
+    rpc-timeout: ${HBASE_RPC_TIMEOUT:60000}
+    scanner-caching: ${HBASE_SCANNER_CACHING:100}
 
 logging:
   level:
