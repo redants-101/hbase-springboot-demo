@@ -24,6 +24,60 @@
 
 ---
 
+## 0. 先用 5 分钟理解 HBase
+
+如果你以前主要写 MySQL、Redis 或别的关系型数据库，可以先把 HBase 记成下面这几件事：
+
+| HBase 概念 | 你可以先这样理解 |
+| --- | --- |
+| 表 `table` | 一个逻辑上的数据容器 |
+| 行键 `rowKey` | 定位一行数据的主键 |
+| 列族 `columnFamily` | 一组一起存储、一起读取的列 |
+| 列名 `qualifier` | 具体列名 |
+| 值 `value` | 真正保存的数据 |
+
+HBase 的思维和 MySQL 不一样，最容易卡住的是这两点：
+
+- 不是先建很多字段，而是先建列族。
+- 不是直接按“表名 + 列名”查，而是通过 `rowKey` 和 `columnFamily + qualifier` 来定位数据。
+
+你可以先把本文的访问链路记成这样：
+
+```mermaid
+flowchart LR
+    A["本地 Spring Boot"] --> B["ZooKeeper 2181"]
+    B --> C["HBase Master 16000 / 16010"]
+    B --> D["RegionServer 16020 / 16030"]
+    E["HBase Shell"] --> B
+```
+
+再简单一点理解：
+
+- `2181` 是入口。
+- `16000`、`16010` 是 Master 相关端口。
+- `16020`、`16030` 是 RegionServer 相关端口。
+- 本地 Java 程序不是直接“连表”，而是先找到 HBase 集群，再去读写数据。
+
+### 0.1 先把配套代码拉下来
+
+如果你想边看边跑，先把配套代码克隆下来：
+
+```bash
+git clone https://github.com/redants-101/hbase-springboot-demo.git
+cd hbase-springboot-demo
+```
+
+Windows PowerShell 也可以这样写：
+
+```powershell
+git clone https://github.com/redants-101/hbase-springboot-demo.git
+Set-Location hbase-springboot-demo
+```
+
+如果你打算先看文章、后跑代码，也没问题。本文的主线是先理解 HBase，再让 Java 程序连上它。
+
+---
+
 ## 一、环境准备
 
 ### 1.1 服务器与本地环境
@@ -86,6 +140,8 @@ docker pull harisekhon/hbase:latest
 docker images | grep hbase
 ```
 
+> 说明：本文使用 `latest` 主要是为了教学方便。若后续镜像行为有变化，先用 `docker exec hbase hbase version` 确认版本，再决定是否需要固定镜像 tag。
+
 ---
 
 ## 二、HBase 单机容器部署
@@ -145,7 +201,7 @@ library initialization failed - unable to allocate file descriptor table - out o
 free -h
 ```
 
-1.6Gi 左右的机器跑 HBase 单机容器会比较吃紧。学习阶段可以先关闭其他占内存服务；如果仍然不稳定，建议升级到 2Gi 以上。低内存参数可以作为临时尝试，但不建议当作稳定方案长期依赖。
+2Gi 左右的机器跑 HBase 单机容器会比较吃紧。学习阶段可以先关闭其他占内存服务；如果仍然不稳定，建议升级到 2Gi 以上。低内存参数可以作为临时尝试，但不建议当作稳定方案长期依赖。
 
 如果你只是为了跟着本文理解 Java 访问链路，低配服务器能跑起来即可；如果你准备长期保留数据，建议参考《HBase-Docker-部署手册.md》里的数据卷挂载方案。本文主线不展开持久化，是为了让第一次学习的路径更短。
 
@@ -221,6 +277,8 @@ docker logs hbase --tail 100
 ```
 
 看到 Master、RegionServer 正常启动后，再继续下一步。
+
+> 说明：本文这里采用“直接进容器改配置”的方式，只是为了降低第一次上手的门槛。容器一旦重建，这些修改可能消失；如果你打算长期使用，请按照《HBase-Docker-部署手册.md》把配置文件挂载出来。
 
 ### 2.4 配置云防火墙和系统防火墙
 
@@ -317,6 +375,21 @@ ERROR: Unknown table test_springbootrow1!
 get 'test_springboot', 'row1'
 ```
 
+如果你已经执行过一次 `create 'test_springboot', 'cf1'`，再次执行同样命令会提示表已存在。重复练习时可以先看表：
+
+```sql
+list
+```
+
+如果确实要重建表，先停用再删除：
+
+```sql
+disable 'test_springboot'
+drop 'test_springboot'
+```
+
+学习阶段反复试错很正常，关键是知道“表已存在”不是故障，而是你已经成功创建过一次。
+
 ---
 
 ## 四、Spring Boot 集成 HBase
@@ -333,6 +406,26 @@ application.yml
   -> HBaseController 暴露 REST 接口
   -> GlobalExceptionHandler 统一异常响应
 ```
+
+### 4.0 先把代码跑起来
+
+如果你已经把 HBase 容器部署好了，可以先把本地代码跑起来，再回来看代码结构：
+
+```powershell
+$env:HBASE_ZK_QUORUM="140.143.201.112"
+$env:HBASE_ZK_PORT="2181"
+mvn spring-boot:run
+```
+
+如果你是在 Linux 或 macOS 上操作：
+
+```bash
+export HBASE_ZK_QUORUM=140.143.201.112
+export HBASE_ZK_PORT=2181
+mvn spring-boot:run
+```
+
+如果 HBase 还没部署好，先别急着启动 Spring Boot。先把第二章跑通，再回来启动代码，过程会顺很多。
 
 ### 4.1 Maven 依赖
 
@@ -491,6 +584,21 @@ curl -X DELETE "http://localhost:8080/api/hbase/row?tableName=test_springboot&ro
 
 如果 Java 访问失败，不要立刻怀疑代码。优先回到第二章检查 `hostname`、端口和安全组。
 
+### 4.8 你应该看到什么
+
+跑通以后，正常现象大概是这样的：
+
+| 操作 | 你应该看到的结果 |
+| --- | --- |
+| 创建表 | 返回 `code=0` |
+| 写入单元格 | 返回 `code=0` |
+| 查询单元格 | `data` 是 `Alice` 或你写入的值 |
+| 查询整行 | `data` 里能看到 `cf1:name` 这样的键 |
+| 扫描表 | `data` 是一个行列表 |
+| 删除行 | 返回 `code=0`，再查同一行时结果为空 |
+
+如果这里和预期不一样，先别急着改代码，优先看第 5 章的排障表。
+
 ---
 
 ## 五、常见问题与解决方案
@@ -588,6 +696,21 @@ hadoop_home/bin/hadoop.dll
 
 如果系统没有配置 `HADOOP_HOME`，项目会尝试使用项目目录下的 `hadoop_home`。
 
+### 5.6 Java 客户端异常对照表
+
+下面这些异常，几乎就是新手最常见的一批：
+
+| 异常 | 常见原因 | 先看哪里 |
+| --- | --- | --- |
+| `UnknownHostException` | HBase 注册了容器 hostname | `hbase-site.xml` 的 `hostname` |
+| `ConnectException` | 端口不通或防火墙没放行 | `2181`、`16000`、`16020` |
+| `SocketTimeoutException` | 网络可达但响应太慢 | 宿主机负载、容器内存、HBase 日志 |
+| `TableNotFoundException` | 表根本没创建 | Shell 里先 `list` |
+| `NoSuchColumnFamilyException` | 列族没建对 | `create` 时的列族名 |
+| `RetriesExhaustedException` | 底层连接多次失败 | ZooKeeper、Master、RegionServer 是否都起来了 |
+
+这张表的作用很简单：先把异常翻译成人话，再去找配置，而不是一上来就盯着 Java 代码改来改去。
+
 ---
 
 ## 六、单机 Docker 与生产环境的区别
@@ -619,8 +742,8 @@ hadoop_home/bin/hadoop.dll
 
 附赠资料可以这样安排：
 
-- 想看更完整的 Docker 部署、持久化、端口和排查清单：看《HBase-Docker-部署手册.md》。
-- 已经跑通过本文，想继续往生产级能力走：看《HBase 学习路线图（Java程序员·生产级视角）.md》。
+- 想看更完整的 Docker 部署、持久化、端口和排查清单：看《HBase-Docker-部署手册》。搜索：程序员之路 对话输入：HBase部署手册。
+- 已经跑通过本文，想继续往生产级能力走：看《HBase 学习路线图（Java程序员·生产级视角）》搜索：程序员之路 对话输入：HBase学习路线图。
 
 ---
 
@@ -637,3 +760,11 @@ hadoop_home/bin/hadoop.dll
 5. 回头看 `HBaseConfig`、`HBaseServiceImpl` 和 `HBaseController`，理解 Java 客户端调用 HBase 的完整过程。
 
 到这里，你就不只是“装好了 HBase”，而是知道了本地 Java 程序到底是怎样通过 ZooKeeper 找到 HBase，再完成真实读写的。
+
+### 8.1 读完这篇文章，你应该已经掌握
+
+- HBase 的基本概念：表、行键、列族、列名、值。
+- Docker 单机 HBase 的启动和验证方法。
+- 本地 Java 客户端连接远程 HBase 的关键条件。
+- `UnknownHostException`、端口不通、列族错误这些常见问题的排查方向。
+- 如何把一篇部署记录变成一个能跟着做的教学闭环。
