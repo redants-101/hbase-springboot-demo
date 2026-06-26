@@ -18,54 +18,114 @@
     </parent>
 
     <properties>
+        <!-- Java 17，配合 Spring Boot 2.7.x；项目使用 Lambda、var、switch 表达式等新语法 -->
         <java.version>17</java.version>
+        <!-- HBase 客户端版本，与部署的 HBase 服务端版本保持一致（2.1.x） -->
         <hbase.version>2.1.3</hbase.version>
+        <!-- Hadoop Common 版本，hbase-client 的传递依赖，显式声明以控制版本 -->
         <hadoop.version>3.2.4</hadoop.version>
+        <!-- Flink 流处理框架版本，用于 Kafka→HBase 实时数据管道 -->
         <flink.version>1.18.1</flink.version>
+        <!-- Flink Kafka Connector 版本，命名格式为 {connector版本}-{flink版本} -->
         <flink.kafka.connector.version>3.1.0-1.18</flink.kafka.connector.version>
     </properties>
 
     <dependencies>
-        <!-- Spring Boot Web 支持 -->
+
+        <!-- ================================================================
+             一、Spring Boot 核心
+             ================================================================ -->
+
+        <!--
+          Spring Boot Web 支持（必要）
+          提供 Spring MVC + 内嵌 Tomcat + Jackson JSON 序列化。
+          使用方：
+            - HBaseController：REST API（建表、Put/Get/Scan/Delete）
+            - ExperimentController：实验触发接口
+            - KafkaToHBasePipelineController：管道启停与状态查询
+            - KafkaToHBaseSinkFunction：间接使用 Jackson（ObjectMapper）解析 Kafka 消息体 JSON
+        -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- Spring Boot Actuator 监控端点 -->
+        <!--
+          Spring Boot Actuator 监控端点（必要）
+          提供生产级监控端点（health / info / metrics）。
+          使用方：application.yml 中配置了 management.endpoints.web.exposure.include: health,info,metrics
+          作用：健康检查、运行时指标监控，配合管道指标（received/written/failed 计数）运维
+        -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
-        <!-- Flink 本地嵌入式实验运行时。 -->
+        <!-- ================================================================
+             二、Flink 流处理（Kafka → HBase 实时数据管道）
+             ================================================================ -->
+
+        <!--
+          Flink 流处理核心 API（必要）
+          使用方：KafkaToHBaseFlinkJob —— 构建 StreamExecutionEnvironment、配置 Checkpoint
+          提供类：StreamExecutionEnvironment、CheckpointingMode、CheckpointConfig、WatermarkStrategy
+          场景：以嵌入式 LocalEnvironment 方式在 Spring Boot 进程内启动 Flink 作业
+        -->
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-streaming-java</artifactId>
             <version>${flink.version}</version>
         </dependency>
 
+        <!--
+          Flink 作业客户端（必要）
+          使用方：KafkaToHBasePipelineService —— 提交作业、获取 JobClient、取消作业
+          提供类：JobExecutionResult、JobClient、RestartStrategies
+          作用：控制 Flink 作业的生命周期（启动 / 查询状态 / 停止）
+        -->
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-clients</artifactId>
             <version>${flink.version}</version>
         </dependency>
 
-        <!-- Flink Connector 基础框架，flink-connector-kafka 运行时依赖（提供 RecordEmitter 等核心类） -->
+        <!--
+          Flink Connector 基础框架（必要）
+          flink-connector-kafka 的运行时基础依赖，提供 KafkaRecordDeserializationSchema 等核心接口。
+          使用方：KafkaRecordToLogEventDeserializer 实现了 KafkaRecordDeserializationSchema 接口
+          注意：缺失会导致 NoClassDefFoundError（历史上踩过的坑）
+        -->
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-connector-base</artifactId>
             <version>${flink.version}</version>
         </dependency>
 
-        <!-- Flink Kafka Source，用于读取 Flume 写入的 Kafka Topic。 -->
+        <!--
+          Flink Kafka Source 连接器（必要）
+          使用方：KafkaToHBaseFlinkJob —— 构建 KafkaSource、配置 OffsetsInitializer
+          作用：从 Kafka Topic 实时消费消息，作为数据管道的输入源
+        -->
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-connector-kafka</artifactId>
             <version>${flink.kafka.connector.version}</version>
         </dependency>
 
-        <!-- HBase 客户端 -->
+        <!-- ================================================================
+             三、HBase 客户端
+             ================================================================ -->
+
+        <!--
+          HBase 客户端（必要 - 核心依赖）
+          使用方：
+            - HBaseConfig：HBaseConfiguration.create()、ConnectionFactory.createConnection() 创建连接
+            - HBaseServiceImpl：Connection、Table、Put、Get、Scan、Delete、Admin 执行 CRUD
+            - ExperimentSupport / 各实验类：TableDescriptorBuilder、ColumnFamilyDescriptorBuilder 进行表设计
+            - KafkaToHBaseSinkFunction：在 Flink Sink 中创建独立 HBase 连接写入数据
+          排除项：slf4j-log4j12 / slf4j-reload4j / log4j —— 避免 SLF4J 多绑定冲突，统一使用 Logback
+          排除项：hadoop-auth —— 统一使用下方 hadoop-common 带入的版本，避免版本不一致
+        -->
         <dependency>
             <groupId>org.apache.hbase</groupId>
             <artifactId>hbase-client</artifactId>
@@ -91,7 +151,13 @@
             </exclusions>
         </dependency>
 
-        <!-- HBase 客户端依赖 Hadoop Common。 -->
+        <!--
+          Hadoop Common（必要 - hbase-client 的传递依赖，显式声明以控制版本）
+          使用方：
+            - HBaseConfig：org.apache.hadoop.conf.Configuration 作为 HBase 连接配置 Bean
+            - KafkaToHBaseSinkFunction：在 Flink Sink 中创建 Hadoop Configuration
+          排除项：slf4j-log4j12 / slf4j-reload4j / reload4j —— 同样避免日志框架冲突
+        -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-common</artifactId>
@@ -112,38 +178,75 @@
             </exclusions>
         </dependency>
 
-        <!-- 预留给连接池等扩展场景的工具依赖。 -->
+        <!-- ================================================================
+             四、通用工具库
+             ================================================================ -->
+
+        <!--
+          Apache Commons Pool2（预留扩展）
+          当前代码未直接使用，预留给连接池等扩展场景（如未来对 HBase Connection 做池化管理）。
+        -->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-pool2</artifactId>
         </dependency>
 
-        <!-- 通用工具类 -->
+        <!--
+          Apache Commons Lang3（必要）
+          使用方：KafkaToHBasePipelineService —— org.apache.commons.lang3.StringUtils 字符串判空
+        -->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
         </dependency>
 
+        <!--
+          Google Guava（间接依赖管理 - 必要但非直接使用）
+          项目代码未直接 import Guava，但 HBase 和 Hadoop 内部大量依赖 Guava。
+          显式声明版本 31.1-jre 统一传递依赖版本，避免多版本冲突导致运行时异常。
+        -->
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
             <version>31.1-jre</version>
         </dependency>
 
-        <!-- Spring Boot 测试支持 -->
+        <!-- ================================================================
+             五、测试与校验
+             ================================================================ -->
+
+        <!--
+          Spring Boot 测试支持（必要 - test 范围）
+          使用方：HBaseServiceIT —— @Test、@Autowired、assertThat 等
+          提供：JUnit 5、Spring TestContext 框架、AssertJ 断言库
+        -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
 
+        <!--
+          Lombok（必要）
+          使用方：
+            - PutRequest / ApiResponse：@Data、@AllArgsConstructor、@NoArgsConstructor
+            - KafkaLogEvent / KafkaToHBasePreviewRow：@Getter、@Setter
+            - KafkaToHBasePipelineProperties：@Data
+          作用：自动生成 getter/setter/构造方法/toString，减少样板代码
+          optional=true：不传递给依赖本项目的其他模块
+        -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
 
-        <!-- HBase 集成测试工具。 -->
+        <!--
+          HBase 集成测试工具（必要 - test 范围）
+          提供 HBaseTestingUtility，可启动 MiniHBaseCluster 在本地进行集成测试
+          使用方：HBaseServiceIT（集成测试场景）
+          排除项：slf4j-log4j12 / slf4j-reload4j —— 避免日志框架冲突
+        -->
         <dependency>
             <groupId>org.apache.hbase</groupId>
             <artifactId>hbase-testing-util</artifactId>
@@ -161,6 +264,14 @@
             </exclusions>
         </dependency>
 
+        <!--
+          Jakarta Validation API（必要 - Bean Validation / JSR-380）
+          使用方：
+            - PutRequest：@NotBlank 校验请求体字段
+            - HBaseController：@Validated、@Valid、@NotBlank 校验请求参数
+            - GlobalExceptionHandler：处理 ConstraintViolationException、MethodArgumentNotValidException
+          注意：Spring Boot 2.7.x 包名仍为 javax.validation.*，此坐标提供兼容实现
+        -->
         <dependency>
             <groupId>jakarta.validation</groupId>
             <artifactId>jakarta.validation-api</artifactId>
@@ -171,6 +282,15 @@
 
     <build>
         <plugins>
+            <!--
+              Spring Boot Maven 打包插件
+              将项目打包为可执行 JAR（内嵌 Tomcat），包含以下能力：
+                1. repackage：把所有依赖打进 fat-jar
+                2. add-opens JVM 参数：Java 17 模块系统下，通过反射访问 JDK 内部类
+                   · java.nio / sun.nio.ch：HBase RPC 的 DirectByteBuffer 操作
+                   · java.lang / java.lang.reflect：Flink 和 Hadoop 的反射调用
+              历史背景：Java 9+ 模块系统默认禁止反射访问 JDK 内部 API，不加会导致 IllegalAccessError
+            -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
@@ -183,6 +303,11 @@
                     </jvmArguments>
                 </configuration>
             </plugin>
+
+            <!--
+              Maven 编译插件
+              指定 Java 17 源码和目标字节码版本
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>

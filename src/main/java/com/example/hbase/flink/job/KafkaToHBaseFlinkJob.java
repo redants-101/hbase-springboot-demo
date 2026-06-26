@@ -157,16 +157,13 @@ public class KafkaToHBaseFlinkJob {
         cpConfig.setCheckpointTimeout(pipelineProperties.getCheckpointTimeoutMs());
 
         // 作业取消时保留 Checkpoint 状态，便于手动恢复
-        cpConfig.setExternalizedCheckpointCleanup(
-                CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
+        cpConfig.setExternalizedCheckpointCleanup(CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
 
         // 允许 Checkpoint 失败时不立即停止作业，给一定的容忍次数
         cpConfig.setTolerableCheckpointFailureNumber(3);
 
         // 设置固定延迟重启策略：最多重试 3 次，每次间隔 10 秒
-        env.setRestartStrategy(RestartStrategies.fixedDelayRestart(
-                3,
-                Time.of(10, TimeUnit.SECONDS)
+        env.setRestartStrategy(RestartStrategies.fixedDelayRestart(3, Time.of(10, TimeUnit.SECONDS)
         ));
     }
 }

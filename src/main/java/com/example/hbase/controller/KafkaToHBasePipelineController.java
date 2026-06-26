@@ -1,8 +1,8 @@
-package com.example.hbase.flink.controller;
+package com.example.hbase.controller;
 
 import com.example.hbase.dto.ApiResponse;
 import com.example.hbase.flink.dto.KafkaToHBasePipelineStatus;
-import com.example.hbase.flink.service.KafkaToHBasePipelineService;
+import com.example.hbase.flink.service.impl.KafkaToHBasePipelineService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;

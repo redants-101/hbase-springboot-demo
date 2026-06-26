@@ -28,7 +28,7 @@ pipeline:
     bootstrap-servers: ${PIPELINE_KAFKA_BOOTSTRAP_SERVERS:140.143.201.112:9092} # Kafka Broker 地址
     topic: ${PIPELINE_KAFKA_TOPIC:public-test}                                   # 消费的 Kafka Topic 名称
     group-id: ${PIPELINE_KAFKA_GROUP_ID:hbase-springboot-demo-flink}             # Kafka 消费者组 ID
-    start-from-earliest: ${PIPELINE_KAFKA_START_FROM_EARLIEST:true}              # 是否从 Topic 最早位置开始消费（false 则从最新位置）
+    start-from-earliest: ${PIPELINE_KAFKA_START_FROM_EARLIEST:false}              # 是否从 Topic 最早位置开始消费（false 则从最新位置）
     hbase-table: ${PIPELINE_HBASE_TABLE:flink_public_test}                       # 数据写入的 HBase 目标表名
     column-family: ${PIPELINE_HBASE_CF:info}                                     # HBase 目标表的列族名称
     parallelism: ${PIPELINE_FLINK_PARALLELISM:1}                                 # Flink 任务并行度
