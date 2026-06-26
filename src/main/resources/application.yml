@@ -1,26 +1,57 @@
+# ========================
+# 应用基础配置
+# ========================
 spring:
   application:
     name: hbase-springboot-demo
 
+# ========================
+# HBase 连接配置
+# ========================
 hbase:
   zookeeper:
-    quorum: ${HBASE_ZK_QUORUM:140.143.201.112}
-    port: ${HBASE_ZK_PORT:2181}
+    quorum: ${HBASE_ZK_QUORUM:140.143.201.112}       # ZooKeeper 集群地址
+    port: ${HBASE_ZK_PORT:2181}                        # ZooKeeper 端口
     znode:
-      parent: ${HBASE_ZNODE_PARENT:/hbase}
+      parent: ${HBASE_ZNODE_PARENT:/hbase}             # HBase 在 ZooKeeper 中的根节点路径
   client:
-    retries: ${HBASE_CLIENT_RETRIES:3}
-    operation-timeout: ${HBASE_OPERATION_TIMEOUT:10000}
-    rpc-timeout: ${HBASE_RPC_TIMEOUT:60000}
-    scanner-caching: ${HBASE_SCANNER_CACHING:100}
+    retries: ${HBASE_CLIENT_RETRIES:3}                 # 客户端操作失败时的重试次数
+    operation-timeout: ${HBASE_OPERATION_TIMEOUT:10000} # 客户端操作超时时间（毫秒）
+    rpc-timeout: ${HBASE_RPC_TIMEOUT:60000}            # RPC 调用超时时间（毫秒）
+    scanner-caching: ${HBASE_SCANNER_CACHING:100}      # Scanner 每次缓存的行数，越大扫描越快但内存占用越高
 
+# ========================
+# Kafka -> HBase 实时数据管道配置（Flink）
+# ========================
+pipeline:
+  kafka-to-hbase:
+    bootstrap-servers: ${PIPELINE_KAFKA_BOOTSTRAP_SERVERS:140.143.201.112:9092} # Kafka Broker 地址
+    topic: ${PIPELINE_KAFKA_TOPIC:public-test}                                   # 消费的 Kafka Topic 名称
+    group-id: ${PIPELINE_KAFKA_GROUP_ID:hbase-springboot-demo-flink}             # Kafka 消费者组 ID
+    start-from-earliest: ${PIPELINE_KAFKA_START_FROM_EARLIEST:true}              # 是否从 Topic 最早位置开始消费（false 则从最新位置）
+    hbase-table: ${PIPELINE_HBASE_TABLE:flink_public_test}                       # 数据写入的 HBase 目标表名
+    column-family: ${PIPELINE_HBASE_CF:info}                                     # HBase 目标表的列族名称
+    parallelism: ${PIPELINE_FLINK_PARALLELISM:1}                                 # Flink 任务并行度
+    auto-create-table: ${PIPELINE_AUTO_CREATE_TABLE:true}                        # 若 HBase 中不存在目标表，是否自动创建
+    preview-size: ${PIPELINE_PREVIEW_SIZE:20}                                    # 预览页面保留的最近记录条数
+    # Flink Checkpoint 配置（保障精确一次消费语义）
+    checkpoint-interval-ms: ${PIPELINE_CHECKPOINT_INTERVAL:30000}                # Checkpoint 触发间隔（毫秒），0 表示禁用
+    min-pause-between-checkpoints-ms: ${PIPELINE_CHECKPOINT_MIN_PAUSE:15000}     # 两次 Checkpoint 之间的最小暂停时间（毫秒）
+    checkpoint-timeout-ms: ${PIPELINE_CHECKPOINT_TIMEOUT:600000}                 # Checkpoint 超时时间（毫秒），超时视为失败
+
+# ========================
+# 日志级别配置
+# ========================
 logging:
   level:
-    com.example.hbase: DEBUG
-    org.apache.hadoop.hbase: WARN
+    com.example.hbase: DEBUG        # 本项目日志级别
+    org.apache.hadoop.hbase: WARN   # HBase 客户端日志级别（减少噪音）
 
+# ========================
+# Spring Boot Actuator 端点配置
+# ========================
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics  # 暴露的 Actuator 端点：健康检查、基本信息、指标监控

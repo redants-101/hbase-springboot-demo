@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Kafka 到 HBase 实验控制台</title>
+    <!--
+        ============================================================
+        Kafka → HBase 实时数据管道 - 前端监控控制台
+        ============================================================
+        功能说明：
+          1. 启停控制：通过按钮调用 REST 接口启动/停止 Flink 管道
+          2. 实时指标：展示已读取、已写入、失败数三项累计计数
+          3. 配置展示：左侧面板展示当前 Kafka / HBase 运行参数
+          4. 写入预览：右侧表格展示最近 N 条成功写入 HBase 的数据行
+        数据来源：
+          - GET /api/pipeline/kafka-hbase/status  —— 定时轮询（3秒）获取状态
+          - POST /api/pipeline/kafka-hbase/start   —— 启动管道
+          - POST /api/pipeline/kafka-hbase/stop    —— 停止管道
+        ============================================================
+    -->
+    <style>
+        /* ========================
+           CSS 自定义变量（设计令牌）
+           统一管理颜色、避免硬编码
+           ======================== */
+        :root {
+            color-scheme: light;
+            --bg: #f6f8fb;              /* 页面背景色 */
+            --panel: #ffffff;           /* 卡片/面板背景色 */
+            --text: #17202a;            /* 主文字颜色 */
+            --muted: #667085;           /* 次要/弱化文字颜色 */
+            --line: #d9e1ec;            /* 边框/分隔线颜色 */
+            --accent: #1769aa;          /* 主色调（按钮、链接） */
+            --accent-strong: #0f4f83;   /* 主色调 hover 加深 */
+            --danger: #b42318;          /* 危险/错误色（停止按钮、错误提示） */
+            --ok: #067647;              /* 成功色（运行中状态指示灯） */
+            --warn: #b54708;            /* 警告色（启动中状态指示灯） */
+        }
+
+        /* ========================
+           全局重置
+           ======================== */
+        * {
+            box-sizing: border-box;
+        }
+
+        /* ========================
+           页面主体
+           ======================== */
+        body {
+            margin: 0;
+            font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        /* ========================
+           顶部导航栏
+           ======================== */
+        header {
+            background: #102033;   /* 深色背景，与整体形成对比 */
+            color: #fff;
+            padding: 20px 28px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 650;
+        }
+
+        /* ========================
+           主内容区域（最大宽度 1280px，居中）
+           ======================== */
+        main {
+            width: min(1280px, calc(100% - 32px));
+            margin: 20px auto 36px;
+        }
+
+        /* ========================
+           工具栏（启动/停止/刷新按钮区域）
+           ======================== */
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        /* ========================
+           按钮基础样式与变体
+           ======================== */
+        button {
+            border: 1px solid transparent;
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-size: 14px;
+            line-height: 1;
+            cursor: pointer;
+            min-width: 94px;
+        }
+
+        /* 主要操作按钮（启动） */
+        button.primary {
+            background: var(--accent);
+            color: #fff;
+        }
+
+        button.primary:hover {
+            background: var(--accent-strong);
+        }
+
+        /* 次要操作按钮（刷新） */
+        button.secondary {
+            background: #fff;
+            color: var(--text);
+            border-color: var(--line);
+        }
+
+        /* 危险操作按钮（停止） */
+        button.danger {
+            background: var(--danger);
+            color: #fff;
+        }
+
+        /* 按钮禁用状态（管道运行中禁用启动，反之禁用停止） */
+        button:disabled {
+            cursor: not-allowed;
+            opacity: .58;
+        }
+
+        /* ========================
+           指标卡片网格（4列等宽布局）
+           展示：任务状态、已读取、已写入、失败数
+           ======================== */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(160px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        /* 通用面板/卡片容器 */
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        /* 指标卡片标题（灰色小字） */
+        .metric-title {
+            color: var(--muted);
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+
+        /* 指标卡片数值（大号加粗） */
+        .metric-value {
+            font-size: 26px;
+            font-weight: 700;
+            word-break: break-word;
+        }
+
+        /* ========================
+           任务状态指示灯
+           通过 CSS 类名切换圆点颜色：
+             .running  → 绿色（ok）
+             .failed   → 红色（danger）
+             .starting → 橙色（warn）
+             默认      → 灰色（muted）
+           ======================== */
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 700;
+        }
+
+        /* 状态指示灯圆点（默认灰色） */
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            background: var(--muted);
+        }
+
+        .status.running .dot {
+            background: var(--ok);
+        }
+
+        .status.failed .dot {
+            background: var(--danger);
+        }
+
+        .status.starting .dot {
+            background: var(--warn);
+        }
+
+        /* ========================
+           两列布局（左侧配置面板 + 右侧预览表格）
+           ======================== */
+        .two-col {
+            display: grid;
+            grid-template-columns: 360px minmax(0, 1fr);
+            gap: 16px;
+        }
+
+        /* 键值对列表容器 */
+        dl {
+            margin: 0;
+        }
+
+        /* 键值对网格：固定标签宽度 120px，值域自适应 */
+        .kv {
+            display: grid;
+            grid-template-columns: 120px minmax(0, 1fr);
+            gap: 8px 12px;
+            font-size: 14px;
+        }
+
+        dt {
+            color: var(--muted);    /* 标签灰色 */
+        }
+
+        dd {
+            margin: 0;
+            word-break: break-all;  /* 长文本自动换行，防止溢出 */
+        }
+
+        /* ========================
+           写入预览表格
+           ======================== */
+        .table-wrap {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            min-width: 980px;
+            border-collapse: collapse;
+            table-layout: fixed;
+            font-size: 13px;
+        }
+
+        th:nth-child(1),
+        td:nth-child(1) {
+            width: 92px;
+        }
+
+        th:nth-child(2),
+        td:nth-child(2) {
+            width: 164px;
+        }
+
+        th:nth-child(3),
+        td:nth-child(3) {
+            width: 86px;
+        }
+
+        th:nth-child(4),
+        td:nth-child(4) {
+            width: 360px;
+        }
+
+        th:nth-child(5),
+        td:nth-child(5) {
+            width: 280px;
+        }
+
+        th,
+        td {
+            border-bottom: 1px solid var(--line);
+            padding: 10px 8px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th {
+            color: var(--muted);
+            font-weight: 650;
+            background: #f8fafc;     /* 表头浅灰底色 */
+        }
+
+        /* 等宽字体，用于 RowKey、代码片段展示 */
+        code {
+            font-family: Consolas, "Cascadia Mono", monospace;
+            background: #eef3f8;
+            border-radius: 4px;
+            padding: 2px 5px;
+        }
+
+        /* 原始日志列：截断溢出，悬浮提示完整内容 */
+        .raw {
+            max-width: 360px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .json-fields {
+            display: grid;
+            gap: 6px;
+            max-height: 168px;
+            overflow: auto;
+            padding-right: 4px;
+        }
+
+        .json-field {
+            display: grid;
+            grid-template-columns: minmax(72px, .7fr) minmax(120px, 1.3fr);
+            gap: 8px;
+            align-items: start;
+            line-height: 1.35;
+        }
+
+        .json-key {
+            color: var(--muted);
+            font-family: Consolas, "Cascadia Mono", monospace;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .json-value {
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+
+        /* ========================
+           辅助文本样式
+           ======================== */
+
+        /* 工具栏右侧的操作提示/时间信息 */
+        .message {
+            color: var(--muted);
+            margin-left: auto;       /* 弹性布局中靠右对齐 */
+            min-height: 20px;
+        }
+
+        /* 错误信息展示（红色） */
+        .error {
+            color: var(--danger);
+            margin-top: 12px;
+            word-break: break-word;
+        }
+
+        /* 空状态占位文字（灰色居中） */
+        .empty {
+            color: var(--muted);
+            text-align: center;
+            padding: 28px 0;
+        }
+
+        /* ========================
+           响应式适配（≤ 900px 时单列布局）
+           ======================== */
+        @media (max-width: 900px) {
+            .grid,
+            .two-col {
+                grid-template-columns: 1fr;
+            }
+
+            header {
+                padding: 18px 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+<!-- ========================
+     页面头部
+     ======================== -->
+<header>
+    <h1>Kafka 到 HBase 实验控制台</h1>
+</header>
+
+<!-- ========================
+     主内容区域
+     ======================== -->
+<main>
+    <!-- ====================
+         工具栏：启停控制按钮 + 操作提示信息
+         ==================== -->
+    <div class="toolbar">
+        <button id="startBtn" class="primary">启动</button>      <!-- 启动管道：消费 Kafka 并写入 HBase -->
+        <button id="stopBtn" class="danger">停止</button>         <!-- 停止管道：取消 Flink 作业 -->
+        <button id="refreshBtn" class="secondary">刷新</button>   <!-- 手动刷新状态（自动刷新间隔 3 秒） -->
+        <span id="message" class="message"></span>               <!-- 操作提示与最后刷新时间 -->
+    </div>
+
+    <!-- ====================
+         指标卡片区域：4列网格展示核心运行指标
+         ==================== -->
+    <section class="grid">
+        <!-- 卡片 1：任务状态（含指示灯圆点） -->
+        <div class="panel">
+            <div class="metric-title">任务状态</div>
+            <div id="state" class="metric-value status"><span class="dot"></span><span>--</span></div>
+        </div>
+        <!-- 卡片 2：从 Kafka 累计消费的消息条数 -->
+        <div class="panel">
+            <div class="metric-title">已读取</div>
+            <div id="receivedCount" class="metric-value">0</div>
+        </div>
+        <!-- 卡片 3：成功写入 HBase 的消息条数 -->
+        <div class="panel">
+            <div class="metric-title">已写入</div>
+            <div id="writtenCount" class="metric-value">0</div>
+        </div>
+        <!-- 卡片 4：写入 HBase 失败的消息条数 -->
+        <div class="panel">
+            <div class="metric-title">失败数</div>
+            <div id="failedCount" class="metric-value">0</div>
+        </div>
+    </section>
+
+    <!-- ====================
+         两列布局：左侧配置信息 + 右侧写入预览
+         ==================== -->
+    <section class="two-col">
+
+        <!-- 左侧面板：当前管道运行参数 -->
+        <aside class="panel">
+            <dl class="kv">
+                <dt>Kafka</dt>
+                <dd id="kafka"></dd>                    <!-- Kafka Broker 地址 -->
+                <dt>Topic</dt>
+                <dd id="topic"></dd>                    <!-- 消费的 Kafka Topic -->
+                <dt>Group ID</dt>
+                <dd id="groupId"></dd>                  <!-- 消费者组 ID -->
+                <dt>Offset</dt>
+                <dd id="offsetMode"></dd>               <!-- 起始消费位置：earliest / latest -->
+                <dt>HBase 表</dt>
+                <dd id="hbaseTable"></dd>               <!-- HBase 目标表名 -->
+                <dt>列族</dt>
+                <dd id="columnFamily"></dd>             <!-- HBase 列族名称 -->
+                <dt>写入规则</dt>
+                <dd><code>info:raw</code> 保存原始日志，扁平 JSON 字段展开为同名列</dd>  <!-- 写入策略说明 -->
+                <dt>RowKey</dt>
+                <dd><code>topic-partition-offset</code></dd>  <!-- RowKey 生成规则说明 -->
+            </dl>
+            <!-- 最近一次错误信息展示区域 -->
+            <div id="lastError" class="error"></div>
+        </aside>
+
+        <!-- 右侧面板：最近写入 HBase 的数据预览表格 -->
+        <section class="panel">
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>写入时间</th>       <!-- 数据写入 HBase 的时间 -->
+                        <th>RowKey</th>         <!-- HBase 行键：topic-partition-offset -->
+                        <th>Kafka Offset</th>   <!-- Kafka 来源信息：topic/partition/offset -->
+                        <th>原始日志</th>       <!-- 消息体原始内容（截断展示） -->
+                        <th>JSON 字段</th>      <!-- JSON 消息解析后的扁平 KV 对 -->
+                    </tr>
+                    </thead>
+                    <tbody id="rows">
+                    <!-- 默认空状态提示，由 JS 动态替换 -->
+                    <tr><td colspan="5" class="empty">暂无写入预览</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </section>
+</main>
+<script>
+    // ========================
+    // 工具函数
+    // ========================
+
+    /**
+     * DOM 元素快捷查询函数。
+     * @param {string} id - 元素 ID
+     * @returns {HTMLElement} 对应的 DOM 元素
+     */
+    const $ = (id) => document.getElementById(id);
+
+    /**
+     * 统一 HTTP 请求封装。
+     * 调用后端 REST 接口，自动解析 ApiResponse 统一响应格式：
+     * { code: 0, message: "success", data: {...} }
+     *
+     * @param {string} url     - 请求 URL
+     * @param {Object} options - fetch 配置（method、headers 等）
+     * @returns {Promise<Object>} 响应中的 data 字段
+     * @throws {Error} 当 HTTP 状态码非 2xx 或业务 code !== 0 时抛出
+     */
+    async function request(url, options = {}) {
+        const response = await fetch(url, options);
+        const json = await response.json();
+        if (!response.ok || json.code !== 0) {
+            throw new Error(json.message || response.statusText);
+        }
+        return json.data;
+    }
+
+    // ========================
+    // 管道控制操作
+    // ========================
+
+    /**
+     * 启动管道。
+     * 调用 POST /api/pipeline/kafka-hbase/start 启动 Flink 作业，
+     * 完成后自动刷新状态。
+     */
+    async function start() {
+        setMessage("正在启动...");
+        await request("/api/pipeline/kafka-hbase/start", {method: "POST"});
+        await refresh();
+    }
+
+    /**
+     * 停止管道。
+     * 调用 POST /api/pipeline/kafka-hbase/stop 取消 Flink 作业，
+     * 完成后自动刷新状态。
+     */
+    async function stop() {
+        setMessage("正在停止...");
+        await request("/api/pipeline/kafka-hbase/stop", {method: "POST"});
+        await refresh();
+    }
+
+    /**
+     * 刷新管道状态。
+     * 调用 GET /api/pipeline/kafka-hbase/status 获取最新状态，
+     * 并调用 render() 更新页面展示。
+     */
+    async function refresh() {
+        try {
+            const data = await request("/api/pipeline/kafka-hbase/status");
+            render(data);
+            setMessage("最后刷新：" + new Date().toLocaleTimeString());
+        } catch (error) {
+            setMessage(error.message);
+        }
+    }
+
+    // ========================
+    // 页面渲染
+    // ========================
+
+    /**
+     * 根据后端返回的状态数据渲染页面。
+     * 更新内容包括：
+     *   - 任务状态指示灯（通过 CSS 类名切换颜色）
+     *   - 三项计数指标（已读取、已写入、失败数）
+     *   - 按钮启用/禁用状态
+     *   - 左侧配置面板
+     *   - 最近错误信息
+     *   - 右侧写入预览表格
+     *
+     * @param {Object} data - 后端返回的 KafkaToHBasePipelineStatus 对象
+     */
+    function render(data) {
+        // --- 更新任务状态指示灯 ---
+        // 通过将状态名（小写）作为 CSS 类名，驱动 .dot 圆点颜色变化
+        const state = (data.state || "--").toLowerCase();
+        $("state").className = "metric-value status " + state;
+        $("state").lastElementChild.textContent = data.state || "--";
+
+        // --- 更新计数指标 ---
+        $("receivedCount").textContent = data.receivedCount || 0;
+        $("writtenCount").textContent = data.writtenCount || 0;
+        $("failedCount").textContent = data.failedCount || 0;
+
+        // --- 更新按钮启用状态 ---
+        // 管道运行中：禁用启动按钮；管道未运行：禁用停止按钮
+        $("startBtn").disabled = data.running;
+        $("stopBtn").disabled = !data.running;
+
+        // --- 更新左侧配置面板 ---
+        const config = data.config || {};
+        $("kafka").textContent = config.bootstrapServers || "";
+        $("topic").textContent = config.topic || "";
+        $("groupId").textContent = config.groupId || "";
+        $("offsetMode").textContent = config.startFromEarliest ? "earliest" : "latest";
+        $("hbaseTable").textContent = config.hbaseTable || "";
+        $("columnFamily").textContent = config.columnFamily || "";
+
+        // --- 更新最近错误信息 ---
+        $("lastError").textContent = data.lastError ? "最近错误：" + data.lastError : "";
+
+        // --- 渲染右侧写入预览表格 ---
+        const rows = data.recentRows || [];
+        if (rows.length === 0) {
+            // 无数据时展示空状态提示
+            $("rows").innerHTML = '<tr><td colspan="5" class="empty">暂无写入预览</td></tr>';
+            return;
+        }
+        // 遍历最近写入的行，生成表格 HTML
+        $("rows").innerHTML = rows.map(row => {
+            // 将解析后的 JSON KV 对格式化为 "key=value" 的多行文本
+            const parsed = row.parsedColumns || {};
+            const parsedText = formatJsonFields(parsed);
+            // 生成单行表格 HTML：写入时间 | RowKey | Kafka 定位信息 | 原始日志 | JSON 字段
+            return `<tr>
+                <td>${escapeHtml(formatDate(row.writtenAt))}</td>
+                <td><code>${escapeHtml(row.rowKey || "")}</code></td>
+                <td>${escapeHtml(row.topic || "")}/${row.partition}/${row.offset}</td>
+                <td class="raw" title="${escapeHtml(row.raw || "")}">${escapeHtml(row.raw || "")}</td>
+                <td>${parsedText}</td>
+            </tr>`;
+        }).join("");
+    }
+
+    // ========================
+    // 辅助函数
+    // ========================
+
+    /**
+     * 更新工具栏的操作提示/状态信息。
+     * @param {string} text - 要展示的文本内容
+     */
+    function setMessage(text) {
+        $("message").textContent = text || "";
+    }
+
+    /**
+     * 格式化日期时间为可读字符串。
+     * 将 ISO 格式中的 "T" 替换为空格，如 "2026-06-25 14:30:00"。
+     * @param {string} value - 后端返回的 LocalDateTime 字符串
+     * @returns {string} 格式化后的时间字符串
+     */
+    function formatDate(value) {
+        if (!value) {
+            return "";
+        }
+        return String(value).replace("T", " ");
+    }
+
+    /**
+     * HTML 特殊字符转义，防止 XSS 注入攻击。
+     * 将 &、<、>、"、' 替换为对应的 HTML 实体。
+     * @param {*} value - 待转义的值（自动转为字符串）
+     * @returns {string} 转义后的安全 HTML 字符串
+     */
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function formatJsonFields(parsed) {
+        const entries = Object.entries(parsed || {});
+        if (entries.length === 0) {
+            return '<span class="empty">无 JSON 字段</span>';
+        }
+        return `<div class="json-fields">${entries.map(([key, value]) => `
+            <div class="json-field" title="${escapeHtml(key)}=${escapeHtml(value)}">
+                <span class="json-key">${escapeHtml(key)}</span>
+                <span class="json-value">${escapeHtml(value)}</span>
+            </div>
+        `).join("")}</div>`;
+    }
+
+    // ========================
+    // 事件绑定与初始化
+    // ========================
+
+    // 绑定按钮点击事件，异常时展示错误信息
+    $("startBtn").addEventListener("click", () => start().catch(error => setMessage(error.message)));
+    $("stopBtn").addEventListener("click", () => stop().catch(error => setMessage(error.message)));
+    $("refreshBtn").addEventListener("click", refresh);
+
+    // 页面加载后立即获取一次状态
+    refresh();
+    // 每 3 秒自动轮询状态接口，实现近实时监控
+    setInterval(refresh, 3000);
+</script>
+</body>
+</html>
