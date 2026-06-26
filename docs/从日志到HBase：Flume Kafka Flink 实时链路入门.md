@@ -365,6 +365,10 @@ mvn spring-boot:run
 http://localhost:8080/pipeline.html
 ```
 
+页面运行效果如下：
+
+![Kafka 到 HBase 实验控制台](../images/从日志到 HBase：用 Flume、Kafka、Flink 串起一条实时数据链路.png)
+
 点击“启动”。状态应变成：
 
 ```text
